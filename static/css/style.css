@@ -1,0 +1,38 @@
+/* static/css/style.css */
+
+:root {
+    --primary-blue: #4e73df;
+    --success-green: #1cc88a;
+    --info-cyan: #36b9cc;
+    --warning-yellow: #f6c23e;
+    --danger-red: #e74a3b;
+}
+
+body {
+    background-color: #f8f9fc;
+    font-family: 'Nunito', sans-serif;
+}
+
+/* Custom Card Styling */
+.card {
+    border: none;
+    border-radius: 0.75rem;
+    transition: transform 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+.border-left-primary { border-left: 0.25rem solid var(--primary-blue) !important; }
+.border-left-success { border-left: 0.25rem solid var(--success-green) !important; }
+.border-left-warning { border-left: 0.25rem solid var(--warning-yellow) !important; }
+.border-left-danger { border-left: 0.25rem solid var(--danger-red) !important; }
+
+/* Dashboard Quick-Action Buttons */
+.btn-manage {
+    padding: 15px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.05rem;
+}
