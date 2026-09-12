@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import re
 from datetime import datetime
 from flask_login import current_user
 
@@ -7,7 +8,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TENANTS_DIR = os.path.join(BASE_DIR, 'tenants')
 MASTER_DB = os.path.join(BASE_DIR, 'master.db')
 
-# Ensure the tenant databases folder exists
+# Ensure directory exists for tenant DB files
 os.makedirs(TENANTS_DIR, exist_ok=True)
 
 def get_master_connection():
@@ -111,7 +112,7 @@ def init_tenant_db(db_name):
     conn.close()
 
 def seed_initial_tenants(bcrypt_instance):
-    """Seeds two separate company tenants with their own credentials and databases."""
+    """Seeds two default company tenants with their own credentials and databases."""
     init_master_db()
     conn = get_master_connection()
     company_count = conn.execute("SELECT COUNT(*) as count FROM companies").fetchone()['count']
@@ -142,3 +143,57 @@ def seed_initial_tenants(bcrypt_instance):
         print(" Successfully initialized Master DB and seeded two isolated tenant databases.")
 
     conn.close()
+
+def register_new_company(company_name, admin_username, admin_password, bcrypt_instance):
+    """
+    Provisions a new company and its isolated SQLite database:
+    1. Creates a clean slug for filenames.
+    2. Initializes an isolated tenant database file inside tenants/.
+    3. Saves company & admin user credentials into master.db.
+    """
+    init_master_db()
+    conn = get_master_connection()
+    cursor = conn.cursor()
+
+    base_slug = re.sub(r'[^a-zA-Z0-9]', '_', company_name.strip().lower())
+    base_slug = re.sub(r'_+', '_', base_slug).strip('_')
+    if not base_slug:
+        base_slug = "company"
+
+    slug = base_slug
+    counter = 1
+    while cursor.execute("SELECT 1 FROM companies WHERE slug = ?", (slug,)).fetchone():
+        slug = f"{base_slug}_{counter}"
+        counter += 1
+
+    db_filename = f"{slug}.db"
+
+    existing_user = cursor.execute("SELECT 1 FROM users WHERE username = ?", (admin_username,)).fetchone()
+    if existing_user:
+        conn.close()
+        return False, "This username is already taken. Please choose another."
+
+    today = datetime.today().strftime('%Y-%m-%d')
+
+    try:
+        init_tenant_db(db_filename)
+
+        cursor.execute('''
+            INSERT INTO companies (company_name, slug, db_name, created_at)
+            VALUES (?, ?, ?, ?)
+        ''', (company_name, slug, db_filename, today))
+        new_company_id = cursor.lastrowid
+
+        pw_hash = bcrypt_instance.generate_password_hash(admin_password).decode('utf-8')
+        cursor.execute('''
+            INSERT INTO users (company_id, username, password_hash, role, date_created)
+            VALUES (?, ?, ?, 'admin', ?)
+        ''', (new_company_id, admin_username, pw_hash, today))
+
+        conn.commit()
+        return True, "Company and administrator registered successfully!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"Failed to provision company: {str(e)}"
+    finally:
+        conn.close()

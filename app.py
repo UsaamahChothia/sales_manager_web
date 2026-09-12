@@ -12,7 +12,8 @@ from email.mime.multipart import MIMEMultipart
 from database import (
     get_master_connection,
     get_db_connection,
-    seed_initial_tenants
+    seed_initial_tenants,
+    register_new_company
 )
 
 app = Flask(__name__)
@@ -158,7 +159,7 @@ def send_receipt_email(recipient_email, sale, customer, product):
     except Exception as e:
         return False, f"SMTP Error: {str(e)}"
 
-# --- Authentication Routes ---
+# --- Authentication & Registration Routes ---
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -195,6 +196,38 @@ def login():
             flash("Invalid username or password. Please try again.", "danger")
 
     return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        company_name = request.form.get('company_name', '').strip()
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        confirm_password = request.form.get('confirm_password', '').strip()
+
+        if not company_name or not username or not password:
+            flash("All fields are required.", "danger")
+            return render_template('register.html')
+
+        if password != confirm_password:
+            flash("Passwords do not match.", "danger")
+            return render_template('register.html')
+
+        if len(password) < 6:
+            flash("Password must be at least 6 characters long.", "warning")
+            return render_template('register.html')
+
+        success, message = register_new_company(company_name, username, password, bcrypt)
+        if success:
+            flash(f"Account created for {company_name}! You can now sign in.", "success")
+            return redirect(url_for('login'))
+        else:
+            flash(message, "danger")
+
+    return render_template('register.html')
 
 @app.route('/logout')
 @login_required
