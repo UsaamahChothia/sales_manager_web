@@ -20,7 +20,7 @@ def get_master_connection():
 def get_db_connection(tenant_db_name=None):
     """
     Dynamically connects to the tenant's SQLite database file.
-    If tenant_db_name is not provided, it resolves it from current_user.
+    If tenant_db_name is not provided, resolves it from current_user.
     """
     if not tenant_db_name:
         if current_user.is_authenticated and hasattr(current_user, 'db_name'):
@@ -34,7 +34,7 @@ def get_db_connection(tenant_db_name=None):
     return conn
 
 def init_master_db():
-    """Sets up the master database for tenant companies and logins."""
+    """Sets up master authentication database and handles schema migrations."""
     conn = get_master_connection()
     cursor = conn.cursor()
 
@@ -44,9 +44,16 @@ def init_master_db():
             company_name TEXT NOT NULL,
             slug TEXT UNIQUE NOT NULL,
             db_name TEXT NOT NULL,
+            business_type TEXT NOT NULL DEFAULT 'retail',
             created_at TEXT NOT NULL
         );
     ''')
+
+    # Safe column migration if companies table existed previously without business_type
+    cursor.execute("PRAGMA table_info(companies);")
+    columns = [col['name'] for col in cursor.fetchall()]
+    if 'business_type' not in columns:
+        cursor.execute("ALTER TABLE companies ADD COLUMN business_type TEXT NOT NULL DEFAULT 'retail';")
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -108,29 +115,53 @@ def init_tenant_db(db_name):
         );
     ''')
 
+    # Restaurant raw inventory
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ingredients (
+            ingredient_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            stock_qty REAL NOT NULL DEFAULT 0.0,
+            cost_per_unit REAL NOT NULL DEFAULT 0.0,
+            date_added TEXT NOT NULL
+        );
+    ''')
+
+    # Restaurant recipe mapping (Bill of Materials)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS product_recipes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id TEXT NOT NULL,
+            ingredient_id TEXT NOT NULL,
+            qty_required REAL NOT NULL,
+            FOREIGN KEY (product_id) REFERENCES products (product_id),
+            FOREIGN KEY (ingredient_id) REFERENCES ingredients (ingredient_id)
+        );
+    ''')
+
     conn.commit()
     conn.close()
 
 def seed_initial_tenants(bcrypt_instance):
-    """Seeds two default company tenants with their own credentials and databases."""
+    """Seeds default tenants if database is clean."""
     init_master_db()
     conn = get_master_connection()
     company_count = conn.execute("SELECT COUNT(*) as count FROM companies").fetchone()['count']
 
     if company_count == 0:
         tenants = [
-            ("Store Alpha", "store_alpha", "store_alpha.db", "admin_alpha", "alpha123"),
-            ("Store Beta", "store_beta", "store_beta.db", "admin_beta", "beta123")
+            ("Store Alpha", "store_alpha", "store_alpha.db", "retail", "admin_alpha", "alpha123"),
+            ("Store Beta", "store_beta", "store_beta.db", "retail", "admin_beta", "beta123")
         ]
 
-        for company_name, slug, db_file, admin_user, admin_pass in tenants:
+        for company_name, slug, db_file, b_type, admin_user, admin_pass in tenants:
             init_tenant_db(db_file)
             today = datetime.today().strftime('%Y-%m-%d')
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO companies (company_name, slug, db_name, created_at)
-                VALUES (?, ?, ?, ?)
-            ''', (company_name, slug, db_file, today))
+                INSERT INTO companies (company_name, slug, db_name, business_type, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (company_name, slug, db_file, b_type, today))
             company_id = cursor.lastrowid
 
             pw_hash = bcrypt_instance.generate_password_hash(admin_pass).decode('utf-8')
@@ -140,16 +171,16 @@ def seed_initial_tenants(bcrypt_instance):
             ''', (company_id, admin_user, pw_hash, today))
 
         conn.commit()
-        print(" Successfully initialized Master DB and seeded two isolated tenant databases.")
+        print(" Successfully seeded master and default tenant databases.")
 
     conn.close()
 
-def register_new_company(company_name, admin_username, admin_password, bcrypt_instance):
+def register_new_company(company_name, admin_username, admin_password, business_type, bcrypt_instance):
     """
-    Provisions a new company and its isolated SQLite database:
+    Provisions a new tenant database:
     1. Creates a clean slug for filenames.
-    2. Initializes an isolated tenant database file inside tenants/.
-    3. Saves company & admin user credentials into master.db.
+    2. Provisions isolated tenant DB with both retail & recipe tables.
+    3. Records company, business_type, and hashed admin user in master.db.
     """
     init_master_db()
     conn = get_master_connection()
@@ -174,14 +205,15 @@ def register_new_company(company_name, admin_username, admin_password, bcrypt_in
         return False, "This username is already taken. Please choose another."
 
     today = datetime.today().strftime('%Y-%m-%d')
+    b_type = 'restaurant' if business_type == 'restaurant' else 'retail'
 
     try:
         init_tenant_db(db_filename)
 
         cursor.execute('''
-            INSERT INTO companies (company_name, slug, db_name, created_at)
-            VALUES (?, ?, ?, ?)
-        ''', (company_name, slug, db_filename, today))
+            INSERT INTO companies (company_name, slug, db_name, business_type, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (company_name, slug, db_filename, b_type, today))
         new_company_id = cursor.lastrowid
 
         pw_hash = bcrypt_instance.generate_password_hash(admin_password).decode('utf-8')
@@ -191,9 +223,9 @@ def register_new_company(company_name, admin_username, admin_password, bcrypt_in
         ''', (new_company_id, admin_username, pw_hash, today))
 
         conn.commit()
-        return True, "Company and administrator registered successfully!"
+        return True, "Company provisioned successfully!"
     except Exception as e:
         conn.rollback()
-        return False, f"Failed to provision company: {str(e)}"
+        return False, f"Provisioning failed: {str(e)}"
     finally:
         conn.close()
