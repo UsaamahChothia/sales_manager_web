@@ -510,7 +510,7 @@ def api_product_recipe(product_id):
         finally:
             conn.close()
 
-# 2. Ingredient APIs (Restaurant Bulk Inventory)
+# 2. Ingredient APIs (Restaurant Bulk Inventory & Pantry Terminal)
 @app.route('/api/ingredients/add', methods=['POST'])
 @login_required
 def api_add_ingredient():
@@ -537,6 +537,46 @@ def api_add_ingredient():
         return jsonify({'success': False, 'message': 'Ingredient ID already registered.'}), 400
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/ingredients/adjust', methods=['POST'])
+@login_required
+def api_adjust_ingredient_stock():
+    data = get_request_data()
+    ingredient_id = data.get('ingredient_id')
+    reason = data.get('reason', 'manual_adjustment')
+    
+    try:
+        qty_change = float(data.get('quantity_change', 0))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': 'Invalid adjustment quantity.'}), 400
+
+    if qty_change == 0:
+        return jsonify({'success': False, 'message': 'Adjustment quantity cannot be zero.'}), 400
+
+    conn = get_db_connection()
+    try:
+        conn.execute("BEGIN TRANSACTION;")
+        item = conn.execute("SELECT stock_qty, name, unit FROM ingredients WHERE ingredient_id = ?", (ingredient_id,)).fetchone()
+        if not item:
+            conn.rollback()
+            return jsonify({'success': False, 'message': 'Ingredient not found.'}), 404
+
+        new_stock = item['stock_qty'] + qty_change
+        if new_stock < 0:
+            conn.rollback()
+            return jsonify({'success': False, 'message': f"Cannot adjust below zero. Current: {item['stock_qty']:.2f} {item['unit']}"}), 400
+
+        conn.execute("UPDATE ingredients SET stock_qty = ? WHERE ingredient_id = ?", (new_stock, ingredient_id))
+        conn.commit()
+        return jsonify({
+            'success': True,
+            'message': f"Updated {item['name']}. New stock: {new_stock:.2f} {item['unit']} ({reason.replace('_', ' ').title()})"
+        })
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/ingredients/delete/<ingredient_id>', methods=['DELETE'])
 @login_required
