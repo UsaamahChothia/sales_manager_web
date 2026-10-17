@@ -57,7 +57,7 @@
                 <label class="form-label small fw-bold">Company / Business Name</label>
                 <div class="input-group">
                     <span class="input-group-text"><i class="fas fa-store"></i></span>
-                    <input type="text" name="company_name" class="form-control" placeholder="e.g. Apex Retailers / Urban Bistro" required autofocus>
+                    <input type="text" name="company_name" class="form-control" placeholder="e.g. Smashed" required autofocus>
                 </div>
             </div>
 
@@ -65,4 +65,47 @@
                 <label class="form-label small fw-bold">Business Model &amp; Inventory Type</label>
                 <div class="input-group">
                     <span class="input-group-text"><i class="fas fa-briefcase"></i></span>
-                    <select name="business_type" class="
+                    <select name="business_type" class="form-select" required>
+                        <option value="retail">Retail / Finished Goods (Furniture, General Store)</option>
+                        <option value="restaurant">Restaurant / Kitchen (Raw Ingredients &amp; Recipes)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label small fw-bold">Admin Username</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="fas fa-user-shield"></i></span>
+                    <input type="text" name="username" class="form-control" placeholder="e.g. manager" required>
+                </div>
+            </div>
+
+            <div class="row g-2 mb-4">
+                <div class="col-md-6">
+                    <label class="form-label small fw-bold">Password</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-lock"></i></span>
+                        <input type="password" name="password" class="form-control" placeholder="••••••••" required>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small fw-bold">Confirm Password</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-check-double"></i></span>
+                        <input type="password" name="confirm_password" class="form-control" placeholder="••••••••" required>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold shadow-sm">
+                Create Store Instance <i class="fas fa-rocket ms-1"></i>
+            </button>
+        </form>
+
+        <div class="mt-4 pt-3 border-top text-center small text-muted">
+            Already have an account? <a href="{{ url_for('login') }}" class="fw-bold text-decoration-none text-primary">Sign in here</a>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
