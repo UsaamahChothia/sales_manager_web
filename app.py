@@ -14,7 +14,8 @@ from database import (
     get_db_connection,
     seed_initial_tenants,
     register_new_company,
-    init_master_db
+    init_master_db,
+    delete_company_by_id
 )
 
 app = Flask(__name__)
@@ -211,6 +212,22 @@ def logout():
     logout_user()
     flash("Logged out successfully.", "info")
     return redirect(url_for('login'))
+
+@app.route('/company/delete', methods=['POST'])
+@login_required
+def delete_current_company():
+    company_id = current_user.company_id
+    company_name = current_user.company_name
+
+    logout_user()
+    success, message = delete_company_by_id(company_id)
+
+    if success:
+        flash(f"Company '{company_name}' and all associated records have been permanently deleted.", "info")
+    else:
+        flash(f"Error deleting company: {message}", "danger")
+
+    return redirect(url_for('register'))
 
 # --- Main Views ---
 
@@ -466,7 +483,7 @@ def api_product_recipe(product_id):
 
     if request.method == 'POST':
         data = get_request_data()
-        items = data.get('recipe', []) # list of {ingredient_id, qty_required}
+        items = data.get('recipe', [])
         try:
             conn.execute("BEGIN TRANSACTION;")
             conn.execute("DELETE FROM product_recipes WHERE product_id = ?", (product_id,))
@@ -484,7 +501,6 @@ def api_product_recipe(product_id):
                     if ing:
                         calculated_cost += (float(ing['cost_per_unit']) * qty)
 
-            # Auto-update product cost price based on ingredient BOM
             conn.execute("UPDATE products SET cost_price = ? WHERE product_id = ?", (calculated_cost, product_id))
             conn.commit()
             return jsonify({'success': True, 'message': 'Recipe updated and dish cost calculated!', 'cost': calculated_cost})
@@ -568,9 +584,8 @@ def api_add_sale():
             conn.rollback()
             return jsonify({'success': False, 'message': 'Product/Dish not found.'}), 404
 
-        # --- Depletion Logic ---
+        # Depletion Logic
         if current_user.business_type == 'restaurant':
-            # Check recipes
             recipe_items = conn.execute('''
                 SELECT pr.ingredient_id, pr.qty_required, i.name, i.stock_qty, i.unit
                 FROM product_recipes pr
@@ -586,17 +601,15 @@ def api_add_sale():
                         'success': False, 
                         'message': f"Insufficient ingredient: '{item['name']}'. Needed: {needed:.2f} {item['unit']}, In stock: {item['stock_qty']:.2f} {item['unit']}"
                     }), 400
-                # Deduct raw ingredient stock
                 conn.execute("UPDATE ingredients SET stock_qty = stock_qty - ? WHERE ingredient_id = ?", 
                              (needed, item['ingredient_id']))
         else:
-            # Retail direct product stock deduction
             if product['stock_qty'] < qty_sold:
                 conn.rollback()
                 return jsonify({'success': False, 'message': f"Insufficient stock. Available: {product['stock_qty']}"}), 400
             conn.execute("UPDATE products SET stock_qty = stock_qty - ? WHERE product_id = ?", (qty_sold, product_id))
 
-        # --- Payment / Layby Handling ---
+        # Payment / Layby Handling
         if payment_type == 'layby' and current_user.business_type != 'restaurant':
             deposit = float(data.get('deposit_amount', 0))
             if deposit <= 0 or deposit >= total_sale_price:
@@ -674,7 +687,6 @@ def api_delete_sale(sale_id):
             conn.rollback()
             return jsonify({'success': False, 'message': 'Sale not found.'}), 404
 
-        # Return stock: ingredients for restaurant, finished units for retail
         if current_user.business_type == 'restaurant':
             recipes = conn.execute("SELECT ingredient_id, qty_required FROM product_recipes WHERE product_id = ?", 
                                    (sale['product_id'],)).fetchall()

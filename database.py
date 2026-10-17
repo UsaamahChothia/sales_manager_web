@@ -229,3 +229,40 @@ def register_new_company(company_name, admin_username, admin_password, business_
         return False, f"Provisioning failed: {str(e)}"
     finally:
         conn.close()
+
+def delete_company_by_id(company_id):
+    """
+    Purges a tenant:
+    1. Removes all linked users in master.db
+    2. Deletes the company record from master.db
+    3. Deletes the tenant's isolated .db file from tenants/
+    """
+    init_master_db()
+    conn = get_master_connection()
+    cursor = conn.cursor()
+
+    company = cursor.execute("SELECT db_name FROM companies WHERE id = ?", (company_id,)).fetchone()
+    if not company:
+        conn.close()
+        return False, "Company record not found."
+
+    db_filename = company['db_name']
+    db_path = os.path.join(TENANTS_DIR, db_filename)
+
+    try:
+        cursor.execute("DELETE FROM users WHERE company_id = ?", (company_id,))
+        cursor.execute("DELETE FROM companies WHERE id = ?", (company_id,))
+        conn.commit()
+
+        if os.path.exists(db_path):
+            try:
+                os.remove(db_path)
+            except OSError as err:
+                print(f"Warning: Could not remove file {db_path}: {err}")
+
+        return True, "Business and associated database successfully deleted."
+    except Exception as e:
+        conn.rollback()
+        return False, f"Failed to delete company: {str(e)}"
+    finally:
+        conn.close()
