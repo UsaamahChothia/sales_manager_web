@@ -276,11 +276,14 @@ def dashboard():
             LIMIT 5
         ''').fetchall()
 
-        # Low stock ingredients for restaurant
+        # Low stock ingredients for restaurant (<500g, <500ml, or <5 units)
         low_ingredients = []
         if current_user.business_type == 'restaurant':
             low_ingredients = conn.execute('''
-                SELECT * FROM ingredients WHERE stock_qty < 5 ORDER BY stock_qty ASC
+                SELECT * FROM ingredients 
+                WHERE (unit IN ('g', 'ml') AND stock_qty < 500) 
+                   OR (unit = 'units' AND stock_qty < 5) 
+                ORDER BY stock_qty ASC
             ''').fetchall()
 
         return render_template('dashboard.html', summary=summary, top_products=top_products, metrics=metrics, low_ingredients=low_ingredients)
@@ -325,7 +328,6 @@ def sales_page():
     '''
     sales = conn.execute(sales_query).fetchall()
     
-    # In restaurant mode, menu items can always be ordered (validated via raw ingredients)
     if current_user.business_type == 'restaurant':
         products = conn.execute("SELECT * FROM products ORDER BY product_name ASC").fetchall()
     else:
@@ -510,29 +512,49 @@ def api_product_recipe(product_id):
         finally:
             conn.close()
 
-# 2. Ingredient APIs (Restaurant Bulk Inventory & Pantry Terminal)
+# 2. Dual-Unit Ingredient APIs (Pantry Conversion Engine)
 @app.route('/api/ingredients/add', methods=['POST'])
 @login_required
 def api_add_ingredient():
     data = get_request_data()
     ing_id = data.get('ingredient_id', '').strip() or generate_id("ING", "ingredients", "ingredient_id")
     name = data.get('name', '').strip()
-    unit = data.get('unit', '').strip() or 'units'
+    purchased_unit = data.get('unit', 'units').strip().lower()
     
     try:
-        stock = float(data.get('stock_qty', 0))
-        cost = float(data.get('cost_per_unit', 0))
-        if stock < 0 or cost < 0:
-            return jsonify({'success': False, 'message': 'Stock and cost cannot be negative.'}), 400
+        raw_qty = float(data.get('stock_qty', 0))
+        total_cost = float(data.get('total_cost', 0))
+        
+        if raw_qty <= 0 or total_cost < 0:
+            return jsonify({'success': False, 'message': 'Quantity must be positive and cost non-negative.'}), 400
+
+        # Normalization to base units (g, ml, units)
+        if purchased_unit == 'kg':
+            base_qty = raw_qty * 1000.0
+            base_unit = 'g'
+        elif purchased_unit == 'l':
+            base_qty = raw_qty * 1000.0
+            base_unit = 'ml'
+        elif purchased_unit == 'g':
+            base_qty = raw_qty
+            base_unit = 'g'
+        elif purchased_unit == 'ml':
+            base_qty = raw_qty
+            base_unit = 'ml'
+        else:
+            base_qty = raw_qty
+            base_unit = 'units'
+
+        cost_per_base_unit = total_cost / base_qty
 
         conn = get_db_connection()
         conn.execute('''
             INSERT INTO ingredients (ingredient_id, name, unit, stock_qty, cost_per_unit, date_added)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (ing_id, name, unit, stock, cost, datetime.today().strftime('%Y-%m-%d')))
+        ''', (ing_id, name, base_unit, base_qty, cost_per_base_unit, datetime.today().strftime('%Y-%m-%d')))
         conn.commit()
         conn.close()
-        return jsonify({'success': True, 'message': 'Raw ingredient added!'})
+        return jsonify({'success': True, 'message': f"Added {name} ({base_qty:.1f} {base_unit} at R{cost_per_base_unit:.4f}/{base_unit})"})
     except sqlite3.IntegrityError:
         return jsonify({'success': False, 'message': 'Ingredient ID already registered.'}), 400
     except Exception as e:
@@ -570,7 +592,7 @@ def api_adjust_ingredient_stock():
         conn.commit()
         return jsonify({
             'success': True,
-            'message': f"Updated {item['name']}. New stock: {new_stock:.2f} {item['unit']} ({reason.replace('_', ' ').title()})"
+            'message': f"Updated {item['name']}. Current stock: {new_stock:.2f} {item['unit']} ({reason.replace('_', ' ').title()})"
         })
     except Exception as e:
         conn.rollback()
@@ -591,13 +613,13 @@ def api_delete_ingredient(ingredient_id):
         conn.commit()
         if cursor.rowcount == 0:
             return jsonify({'success': False, 'message': 'Ingredient not found.'}), 404
-        return jsonify({'success': True, 'message': 'Ingredient deleted.'})
+        return jsonify({'success': True, 'message': 'Ingredient purged.'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         conn.close()
 
-# 3. Dynamic POS Sale API (Cook-to-Order Depletion vs Retail Depletion)
+# 3. Dynamic POS Sale API (Portion Depletion vs Retail Depletion)
 @app.route('/api/sales/add', methods=['POST'])
 @login_required
 def api_add_sale():
@@ -639,7 +661,7 @@ def api_add_sale():
                     conn.rollback()
                     return jsonify({
                         'success': False, 
-                        'message': f"Insufficient ingredient: '{item['name']}'. Needed: {needed:.2f} {item['unit']}, In stock: {item['stock_qty']:.2f} {item['unit']}"
+                        'message': f"Insufficient ingredient: '{item['name']}'. Needed: {needed:.1f} {item['unit']}, In stock: {item['stock_qty']:.1f} {item['unit']}"
                     }), 400
                 conn.execute("UPDATE ingredients SET stock_qty = stock_qty - ? WHERE ingredient_id = ?", 
                              (needed, item['ingredient_id']))

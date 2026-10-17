@@ -30,41 +30,44 @@
     </nav>
 
     <div class="container mt-4 mb-5">
-        <!-- New Ingredient Form -->
+        <!-- New Ingredient Bulk Intake Form -->
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white py-3">
-                <h5 class="m-0 fw-bold text-primary"><i class="fas fa-plus me-2"></i>Register New Raw Ingredient</h5>
+                <h5 class="m-0 fw-bold text-primary"><i class="fas fa-plus me-2"></i>Log Raw Stock Supply / Bulk Purchase</h5>
             </div>
             <div class="card-body">
                 <form id="addIngredientForm">
                     <div class="row g-3">
                         <div class="col-md-3">
                             <label class="form-label small fw-bold">Ingredient Name</label>
-                            <input type="text" name="name" class="form-control" placeholder="e.g. Beef Patties / Cheese" required>
+                            <input type="text" name="name" class="form-control" placeholder="e.g. Beef Mince / Brioche Buns" required>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label small fw-bold">Unit</label>
-                            <select name="unit" class="form-select" required>
-                                <option value="units">Units / Pieces</option>
+                            <label class="form-label small fw-bold">Purchased Bulk Unit</label>
+                            <select name="unit" id="bulkUnitSelect" class="form-select" required onchange="updateFormHint()">
                                 <option value="kg">Kilograms (kg)</option>
                                 <option value="g">Grams (g)</option>
                                 <option value="L">Litres (L)</option>
                                 <option value="ml">Millilitres (ml)</option>
+                                <option value="units">Units / Pieces</option>
                             </select>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label small fw-bold">Opening Stock</label>
-                            <input type="number" name="stock_qty" class="form-control" step="0.01" placeholder="e.g. 50" required>
+                            <label class="form-label small fw-bold" id="bulkQtyLabel">Bulk Qty Bought (kg)</label>
+                            <input type="number" name="stock_qty" id="bulkQtyInput" class="form-control" step="0.001" placeholder="e.g. 3" required>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label small fw-bold">Cost per Unit (R)</label>
-                            <input type="number" name="cost_per_unit" class="form-control" step="0.01" placeholder="e.g. 12.50" required>
+                            <label class="form-label small fw-bold">Total Cost Paid (R)</label>
+                            <input type="number" name="total_cost" class="form-control" step="0.01" placeholder="e.g. 285.00" required>
                         </div>
                         <div class="col-md-3 d-flex align-items-end">
                             <button type="submit" class="btn btn-primary w-100 py-2">
-                                <i class="fas fa-save me-1"></i> Save to Pantry
+                                <i class="fas fa-save me-1"></i> Add to Pantry
                             </button>
                         </div>
+                    </div>
+                    <div class="form-text small mt-2 text-muted" id="formHintText">
+                        Bulk purchases in kg or L are automatically normalized to grams and ml so your recipe portions calculate food costs accurately.
                     </div>
                 </form>
             </div>
@@ -83,8 +86,8 @@
                             <tr>
                                 <th>ID</th>
                                 <th>Ingredient</th>
-                                <th>Current Stock</th>
-                                <th>Cost / Unit</th>
+                                <th>Stock on Hand</th>
+                                <th>Base Unit Cost</th>
                                 <th>Pantry Value</th>
                                 <th>Stock Status</th>
                                 <th class="text-center">Manage Stock</th>
@@ -98,14 +101,27 @@
                                 <td class="fw-bold">{{ ing.ingredient_id }}</td>
                                 <td class="fw-bold text-dark">{{ ing.name }}</td>
                                 <td class="fw-bold fs-6">
-                                    {{ "%.2f"|format(ing.stock_qty|float) }} <span class="small text-muted">{{ ing.unit }}</span>
+                                    {% if ing.unit == 'g' and ing.stock_qty >= 1000 %}
+                                        {{ "%.2f"|format(ing.stock_qty / 1000.0) }} kg <span class="small text-muted fw-normal">({{ "%.0f"|format(ing.stock_qty) }} g)</span>
+                                    {% elif ing.unit == 'ml' and ing.stock_qty >= 1000 %}
+                                        {{ "%.2f"|format(ing.stock_qty / 1000.0) }} L <span class="small text-muted fw-normal">({{ "%.0f"|format(ing.stock_qty) }} ml)</span>
+                                    {% else %}
+                                        {{ "%.2f"|format(ing.stock_qty|float) }} <span class="small text-muted fw-normal">{{ ing.unit }}</span>
+                                    {% endif %}
                                 </td>
-                                <td>R {{ "%.2f"|format(ing.cost_per_unit|float) }}</td>
-                                <td>R {{ "%.2f"|format(val|float) }}</td>
+                                <td>
+                                    R {{ "%.4f"|format(ing.cost_per_unit|float) }} / {{ ing.unit }}
+                                    {% if ing.unit == 'g' %}
+                                        <div class="small text-muted">(R {{ "%.2f"|format(ing.cost_per_unit * 1000.0) }}/kg)</div>
+                                    {% elif ing.unit == 'ml' %}
+                                        <div class="small text-muted">(R {{ "%.2f"|format(ing.cost_per_unit * 1000.0) }}/L)</div>
+                                    {% endif %}
+                                </td>
+                                <td class="fw-bold text-primary">R {{ "%.2f"|format(val|float) }}</td>
                                 <td>
                                     {% if ing.stock_qty <= 0 %}
                                     <span class="badge bg-danger">OUT OF STOCK</span>
-                                    {% elif ing.stock_qty < 5 %}
+                                    {% elif (ing.unit in ['g', 'ml'] and ing.stock_qty < 500) or (ing.unit == 'units' and ing.stock_qty < 5) %}
                                     <span class="badge bg-warning text-dark">LOW STOCK</span>
                                     {% else %}
                                     <span class="badge bg-success">IN STOCK</span>
@@ -118,7 +134,7 @@
                                                 data-name="{{ ing.name }}" 
                                                 data-unit="{{ ing.unit }}"
                                                 data-action="add" 
-                                                title="Add Delivery / Restock">
+                                                title="Add Restock">
                                             <i class="fas fa-plus"></i> Restock
                                         </button>
                                         <button class="btn btn-outline-warning adjust-btn" 
@@ -126,7 +142,7 @@
                                                 data-name="{{ ing.name }}" 
                                                 data-unit="{{ ing.unit }}"
                                                 data-action="waste" 
-                                                title="Log Waste / Spoilage">
+                                                title="Log Waste">
                                             <i class="fas fa-minus"></i> Waste
                                         </button>
                                     </div>
@@ -162,10 +178,10 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="text-muted small" id="adjustDesc">Update ingredient counts for delivery restocks, kitchen waste, or counts discrepancy.</p>
+                    <p class="text-muted small">Update ingredient counts for deliveries, kitchen waste, or manual corrections.</p>
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Quantity Change (<span id="modalUnit"></span>)</label>
-                        <input type="number" id="modalQty" class="form-control" step="0.01" min="0.01" placeholder="e.g. 10.00" required>
+                        <input type="number" id="modalQty" class="form-control" step="0.1" min="0.1" placeholder="e.g. 500" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-bold">Reason for Adjustment</label>
@@ -186,7 +202,11 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    // Register new ingredient
+    function updateFormHint() {
+        const u = document.getElementById('bulkUnitSelect').value;
+        document.getElementById('bulkQtyLabel').innerText = `Bulk Qty Bought (${u})`;
+    }
+
     document.getElementById('addIngredientForm').addEventListener('submit', function(e) {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(this));
@@ -202,7 +222,6 @@
         });
     });
 
-    // Stock adjustment modal handling
     let currentIngId = null;
     let currentMode = 'add';
     const adjustModal = new bootstrap.Modal(document.getElementById('adjustModal'));
@@ -254,12 +273,11 @@
         });
     }
 
-    // Delete erroneous entry
     document.querySelectorAll('.del-ing-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const id = this.getAttribute('data-id');
             const name = this.getAttribute('data-name');
-            if (confirm(`Are you sure you want to delete '${name}' (${id})? This will completely purge this ingredient.`)) {
+            if (confirm(`Are you sure you want to delete '${name}' (${id})? This will purge this ingredient from the pantry.`)) {
                 fetch('/api/ingredients/delete/' + id, { method: 'DELETE' })
                 .then(r => r.json())
                 .then(res => {

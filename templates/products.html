@@ -21,7 +21,7 @@
                     <i class="fas fa-utensils me-1"></i> {{ 'Menu Items' if current_user.business_type == 'restaurant' else 'Inventory' }}
                 </a>
                 {% if current_user.business_type == 'restaurant' %}
-                <a class="nav-link" href="{{ url_for('ingredients_page') }}"><i class="fas fa-seedling me-1"></i> Raw Ingredients</a>
+                <a class="nav-link" href="{{ url_for('ingredients_page') }}"><i class="fas fa-seedling me-1"></i> Pantry Terminal</a>
                 {% endif %}
                 <a class="nav-link" href="{{ url_for('sales_page') }}"><i class="fas fa-cash-register me-1"></i> Point of Sale</a>
                 <a class="nav-link" href="{{ url_for('customers_page') }}"><i class="fas fa-users me-1"></i> Customers</a>
@@ -55,7 +55,7 @@
                         </div>
                         {% endif %}
                         <div class="col-md-2">
-                            <label class="form-label small fw-bold">{{ 'Estimated Cost (R)' if current_user.business_type == 'restaurant' else 'Cost Price (R)' }}</label>
+                            <label class="form-label small fw-bold">{{ 'Cost Estimate (R)' if current_user.business_type == 'restaurant' else 'Cost Price (R)' }}</label>
                             <input type="number" name="cost_price" class="form-control" step="0.01" placeholder="0.00" required>
                         </div>
                         <div class="col-md-2">
@@ -137,12 +137,12 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="text-muted small">Specify raw ingredients for one portion. When ordered, these amounts deduct from pantry inventory.</p>
+                    <p class="text-muted small">Specify portion amounts (grams, ml, or units) for 1 single serving. Food cost will calculate automatically based on pantry pricing.</p>
                     <table class="table table-sm align-middle" id="recipeTable">
                         <thead class="table-light">
                             <tr>
                                 <th>Ingredient</th>
-                                <th style="width: 140px;">Qty Needed</th>
+                                <th style="width: 150px;">Portion Needed</th>
                                 <th>Unit</th>
                                 <th>Cost (R)</th>
                                 <th></th>
@@ -150,19 +150,23 @@
                         </thead>
                         <tbody id="recipeBody"></tbody>
                     </table>
+                    
                     <div class="row g-2 align-items-center mb-3">
                         <div class="col-md-6">
-                            <select id="ingredientSelector" class="form-select form-select-sm">
+                            <select id="ingredientSelector" class="form-select form-select-sm" onchange="updateRecipeUnitLabel()">
                                 <option value="">Select ingredient to add...</option>
                                 {% for ing in ingredients %}
                                 <option value="{{ ing.ingredient_id }}" data-name="{{ ing.name }}" data-unit="{{ ing.unit }}" data-cost="{{ ing.cost_per_unit }}">
-                                    {{ ing.name }} (R{{ ing.cost_per_unit }}/{{ ing.unit }})
+                                    {{ ing.name }} (R{{ "%.4f"|format(ing.cost_per_unit) }}/{{ ing.unit }})
                                 </option>
                                 {% endfor %}
                             </select>
                         </div>
                         <div class="col-md-3">
-                            <input type="number" id="ingredientQty" class="form-control form-control-sm" placeholder="Qty (e.g. 0.15)" step="0.001">
+                            <div class="input-group input-group-sm">
+                                <input type="number" id="ingredientQty" class="form-control" placeholder="Qty" step="0.1" min="0.1">
+                                <span class="input-group-text fw-bold text-muted" id="recipeUnitBadge">unit</span>
+                            </div>
                         </div>
                         <div class="col-md-3">
                             <button type="button" class="btn btn-sm btn-success w-100" onclick="addIngredientRow()">
@@ -170,6 +174,7 @@
                             </button>
                         </div>
                     </div>
+                    
                     <div class="p-3 bg-light rounded d-flex justify-content-between align-items-center border">
                         <span class="fw-bold">Calculated Food Cost:</span>
                         <span class="h5 m-0 text-primary fw-bold" id="totalRecipeCost">R 0.00</span>
@@ -185,6 +190,18 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    function updateRecipeUnitLabel() {
+        const sel = document.getElementById('ingredientSelector');
+        const badge = document.getElementById('recipeUnitBadge');
+        if (sel.value) {
+            const unit = sel.options[sel.selectedIndex].getAttribute('data-unit');
+            badge.innerText = unit;
+            document.getElementById('ingredientQty').placeholder = (unit === 'g') ? 'e.g. 150' : (unit === 'ml' ? 'e.g. 30' : 'e.g. 1');
+        } else {
+            badge.innerText = 'unit';
+        }
+    }
+
     document.getElementById('addProductForm').addEventListener('submit', function(e) {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(this));
@@ -242,7 +259,7 @@
             tbody.innerHTML += `
                 <tr>
                     <td class="fw-bold">${item.ingredient_name}</td>
-                    <td><input type="number" class="form-control form-control-sm" value="${item.qty_required}" step="0.001" onchange="updateQty(${index}, this.value)"></td>
+                    <td><input type="number" class="form-control form-control-sm" value="${item.qty_required}" step="0.1" onchange="updateQty(${index}, this.value)"></td>
                     <td>${item.unit}</td>
                     <td>R ${cost.toFixed(2)}</td>
                     <td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="removeRecipeRow(${index})"><i class="fas fa-times"></i></button></td>
